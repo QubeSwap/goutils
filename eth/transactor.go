@@ -310,6 +310,23 @@ func (t *Transactor) determineGas(method TxMethod, signer *bind.TransactOpts, tx
 	if signer.GasLimit < dryTx.Gas() {
 		return fmt.Errorf("gas limit lower than estimated value")
 	}
+	// 🔴 HARD SEI SAFETY NET: ensure 1559 fields are set
+    // If chain is EIP-1559 (BaseFee != nil), force non-zero caps.
+    ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+    defer cancel()
+    head, err := client.HeaderByNumber(ctx, nil)
+    if err == nil && head.BaseFee != nil {
+        if signer.GasTipCap == nil || signer.GasTipCap.Sign() == 0 {
+            signer.GasTipCap = big.NewInt(1_000_000_000) // 1 gwei
+        }
+        if signer.GasFeeCap == nil || signer.GasFeeCap.Sign() == 0 {
+            feecap := new(big.Int).Mul(head.BaseFee, big.NewInt(2))
+            feecap.Add(feecap, signer.GasTipCap)
+            signer.GasFeeCap = feecap
+        }
+        // Optional: clear legacy price to avoid confusion
+        signer.GasPrice = nil
+    }
 	return nil
 }
 
