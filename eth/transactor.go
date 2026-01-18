@@ -311,27 +311,27 @@ func (t *Transactor) determineGas(method TxMethod, signer *bind.TransactOpts, tx
 		return fmt.Errorf("gas limit lower than estimated value")
 	}
 	// 🔴 HARD SEI SAFETY NET: ensure 1559 fields are set
-	// If chain is EIP-1559 (BaseFee != nil), force non-zero caps.
-	ctx2, cancel2 := context.WithTimeout(context.Background(), ctxTimeout)
-	defer cancel2()
-
-	head2, err2 := client.HeaderByNumber(ctx2, nil)
-	if err2 == nil && head2.BaseFee != nil {
-		if signer.GasTipCap == nil || signer.GasTipCap.Sign() == 0 {
-			signer.GasTipCap = big.NewInt(1_000_000_000) // 1 gwei
-		}
-		if signer.GasFeeCap == nil || signer.GasFeeCap.Sign() == 0 {
-			feecap := new(big.Int).Mul(head2.BaseFee, big.NewInt(2))
-			feecap.Add(feecap, signer.GasTipCap)
-			signer.GasFeeCap = feecap
-		}
-		signer.GasPrice = nil
-	}
+    // If chain is EIP-1559 (BaseFee != nil), force non-zero caps.
+    ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+    defer cancel()
+    head, err := client.HeaderByNumber(ctx, nil)
+    if err == nil && head.BaseFee != nil {
+        if signer.GasTipCap == nil || signer.GasTipCap.Sign() == 0 {
+            signer.GasTipCap = big.NewInt(1_000_000_000) // 1 gwei
+        }
+        if signer.GasFeeCap == nil || signer.GasFeeCap.Sign() == 0 {
+            feecap := new(big.Int).Mul(head.BaseFee, big.NewInt(2))
+            feecap.Add(feecap, signer.GasTipCap)
+            signer.GasFeeCap = feecap
+        }
+        // Optional: clear legacy price to avoid confusion
+        signer.GasPrice = nil
+    }
 	return nil
 }
 
 // determine1559GasPrice sets the gas price on the signer based on the EIP-1559 fee model
-/*func determine1559GasPrice(signer *bind.TransactOpts, txopts txOptions, client *ethclient.Client, baseFee *big.Int) error {
+func determine1559GasPrice(signer *bind.TransactOpts, txopts txOptions, client *ethclient.Client, baseFee *big.Int) error {
 	// If forceGasGwei is set, map it to 1559 caps; it overrides other 1559 flags
 	if txopts.forceGasGwei != nil {
 		forceWei := new(big.Int).SetUint64(uint64(*txopts.forceGasGwei * 1e9))
@@ -349,9 +349,15 @@ func (t *Transactor) determineGas(method TxMethod, signer *bind.TransactOpts, tx
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 		defer cancel()
-		suggestedGasTipCap, err := client.SuggestGasTipCap(ctx)
+		/*suggestedGasTipCap, err := client.SuggestGasTipCap(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to call SuggestGasTipCap: %w", err)
+		}*/
+		var suggestedGasTipCap *big.Int
+		suggestedGasTipCap, err = client.SuggestGasTipCap(ctx)
+		if err != nil {
+			// Sei fallback: 1 gwei
+			suggestedGasTipCap = big.NewInt(1_000_000_000)
 		}
 		if txopts.addPriorityFeePerGasGwei > 0 {
 			signer.GasTipCap = new(big.Int).SetUint64(uint64(txopts.addPriorityFeePerGasGwei*1e9) + suggestedGasTipCap.Uint64())
@@ -372,51 +378,6 @@ func (t *Transactor) determineGas(method TxMethod, signer *bind.TransactOpts, tx
 	}
 
 	return nil
-}*/
-func determine1559GasPrice(
-    signer *bind.TransactOpts,
-    txopts txOptions,
-    client *ethclient.Client,
-    baseFee *big.Int,
-) error {
-
-    var err error
-
-    // 1. Priority fee (tip)
-    var tip *big.Int
-    if txopts.maxPriorityFeePerGasGwei > 0 {
-        tip = new(big.Int).SetUint64(uint64(txopts.maxPriorityFeePerGasGwei * 1e9))
-    } else {
-        ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
-        defer cancel()
-
-        var suggestedGasTipCap *big.Int
-        suggestedGasTipCap, err = client.SuggestGasTipCap(ctx)
-        if err != nil {
-            // Sei fallback: 1 gwei
-            suggestedGasTipCap = big.NewInt(1_000_000_000)
-        }
-
-        if txopts.addPriorityFeePerGasGwei > 0 {
-            tip = new(big.Int).SetUint64(
-                uint64(txopts.addPriorityFeePerGasGwei*1e9) + suggestedGasTipCap.Uint64(),
-            )
-        } else if txopts.addGasFeeRatio > 0 {
-            tip = new(big.Int).SetUint64(
-                uint64(float64(suggestedGasTipCap.Uint64()) * (1 + txopts.addGasFeeRatio)),
-            )
-        } else {
-            tip = suggestedGasTipCap
-        }
-    }
-    signer.GasTipCap = tip
-
-    // 2. Fee cap = 2 * baseFee + tip
-    feecap := new(big.Int).Mul(baseFee, big.NewInt(2))
-    feecap.Add(feecap, tip)
-    signer.GasFeeCap = feecap
-
-    return nil
 }
 
 // determineLegacyGasPrice sets the gas price on the signer based on the legacy fee model
