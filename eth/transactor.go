@@ -353,9 +353,10 @@ func determine1559GasPrice(signer *bind.TransactOpts, txopts txOptions, client *
 		if err != nil {
 			return fmt.Errorf("failed to call SuggestGasTipCap: %w", err)
 		}*/
-		suggestedGasTipCap, err := client.SuggestGasTipCap(ctx)
+		var suggestedGasTipCap *big.Int
+		suggestedGasTipCap, err = client.SuggestGasTipCap(ctx)
 		if err != nil {
-			// Sei fallback: 1 gwei tip
+			// Sei fallback: 1 gwei
 			suggestedGasTipCap = big.NewInt(1_000_000_000)
 		}
 		if txopts.addPriorityFeePerGasGwei > 0 {
